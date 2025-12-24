@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Hair Card Generator</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --panel-color: #2d2d2d;
+            --text-color: #e0e0e0;
+            --accent-color: #4CAF50;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sol Panel: Kontroller */
+        .controls {
+            width: 320px;
+            background-color: var(--panel-color);
+            padding: 20px;
+            overflow-y: auto;
+            border-right: 1px solid #444;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 40px;
+            border: none;
+            cursor: pointer;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button.secondary {
+            background-color: #555;
+            margin-top: 5px;
+        }
+
+        button.secondary:hover {
+            background-color: #666;
+        }
+
+        /* Sağ Panel: Önizleme */
+        .preview-area {
+            flex-grow: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: linear-gradient(45deg, #222 25%, transparent 25%),
+                linear-gradient(-45deg, #222 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #222 75%),
+                linear-gradient(-45deg, transparent 75%, #222 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            position: relative;
+        }
+
+        canvas {
+            background-color: transparent;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            max-height: 90vh;
+            max-width: 90%;
+        }
+
+        .mode-badge {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="controls">
+        <h2>Hair Generator</h2>
+
+        <div class="control-group">
+            <label>Map Türü</label>
+            <button id="btn-albedo" class="secondary" onclick="setMode('albedo')">Albedo (Renk)</button>
+            <button id="btn-alpha" class="secondary" onclick="setMode('alpha')">Alpha (Maske)</button>
+        </div>
+
+        <hr style="width:100%; border:0; border-top:1px solid #444;">
+
+        <div class="control-group">
+            <label for="strandCount">Tel Sayısı (Yoğunluk)</label>
+            <input type="range" id="strandCount" min="50" max="2000" value="800">
+        </div>
+
+        <div class="control-group">
+            <label for="widthVar">Dağılım Genişliği</label>
+            <input type="range" id="widthVar" min="10" max="100" value="60">
+        </div>
+
+        <div class="control-group">
+            <label for="waviness">Dalga (Waviness)</label>
+            <input type="range" id="waviness" min="0" max="100" value="20">
+        </div>
+
+        <div class="control-group">
+            <label for="thickness">Tel Kalınlığı</label>
+            <input type="range" id="thickness" min="1" max="50" value="5">
+        </div>
+
+        <div class="control-group">
+            <label for="rootColor">Kök Rengi (Root)</label>
+            <input type="color" id="rootColor" value="#3e2723">
+        </div>
+
+        <div class="control-group">
+            <label for="tipColor">Uç Rengi (Tip)</label>
+            <input type="color" id="tipColor" value="#8d6e63">
+        </div>
+
+        <button onclick="downloadTexture()">Kaplamayı İndir (.PNG)</button>
+    </div>
+
+    <div class="preview-area">
+        <span class="mode-badge" id="modeBadge">Mod: Albedo</span>
+        <canvas id="hairCanvas" width="512" height="1024"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('hairCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // State
+        let currentMode = 'albedo'; // albedo | alpha
+
+        // Element Referansları
+        const inputs = {
+            strandCount: document.getElementById('strandCount'),
+            widthVar: document.getElementById('widthVar'),
+            waviness: document.getElementById('waviness'),
+            thickness: document.getElementById('thickness'),
+            rootColor: document.getElementById('rootColor'),
+            tipColor: document.getElementById('tipColor')
+        };
+
+        // Event Listener'ları ekle
+        Object.values(inputs).forEach(input => {
+            input.addEventListener('input', draw);
+        });
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('modeBadge').innerText = `Mod: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`;
+            draw();
+        }
+
+        // Rastgelelik fonksiyonu (belirli bir seed ile değil, basit random)
+        function randomRange(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function draw() {
+            // Temizle
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Arkaplan
+            if (currentMode === 'alpha') {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            const count = parseInt(inputs.strandCount.value);
+            const waviness = parseInt(inputs.waviness.value);
+            const spread = parseInt(inputs.widthVar.value) / 100; // 0.1 - 1.0
+            const thickness = parseInt(inputs.thickness.value) / 10;
+
+            // Merkez noktası
+            const centerX = canvas.width / 2;
+
+            // Karışım Modu
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Telleri çiz
+            for (let i = 0; i < count; i++) {
+                drawStrand(i, count, centerX, spread, waviness, thickness);
+            }
+        }
+
+        function drawStrand(index, total, centerX, spread, waviness, thickness) {
+            // Başlangıç X pozisyonu (Gaussian benzeri dağılım için basit hile)
+            let randomX = (Math.random() - 0.5) + (Math.random() - 0.5);
+            let startX = centerX + (randomX * (canvas.width * spread));
+
+            // Saç teli yolu
+            ctx.beginPath();
+            ctx.moveTo(startX, 0); // En tepe
+
+            // Bezier Eğrileri ile dalga oluşturma
+            // Basit bir "S" şekli veya düzensiz dalga
+            const cp1x = startX + randomRange(-waviness, waviness);
+            const cp1y = canvas.height * 0.33;
+
+            const cp2x = startX + randomRange(-waviness, waviness);
+            const cp2y = canvas.height * 0.66;
+
+            const endX = startX + randomRange(-waviness * 2, waviness * 2);
+            const endY = canvas.height;
+
+            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY);
+
+            // Stil Ayarları
+            if (currentMode === 'albedo') {
+                // Gradient Oluştur (Kökten uca)
+                const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                grad.addColorStop(0, inputs.rootColor.value);
+                grad.addColorStop(1, inputs.tipColor.value);
+                ctx.strokeStyle = grad;
+
+                // Biraz şeffaflık ver ki teller birbirine karışsın
+                ctx.globalAlpha = 0.6;
+            } else {
+                // Alpha Modu (Beyaz teller, Siyah zemin)
+                ctx.strokeStyle = 'white';
+                // Alpha map'te kenarların yumuşak geçişi için
+                ctx.globalAlpha = 0.4;
+            }
+
+            // Kalınlık varyasyonu
+            ctx.lineWidth = thickness * randomRange(0.5, 1.5);
+
+            // Uçlara doğru incelme efekti (Canvas'ta zor olduğu için Alpha ile hile yapıyoruz)
+            // Ancak burada basit çizim yapıyoruz, line cap round
+            ctx.lineCap = 'round';
+
+            ctx.stroke();
+        }
+
+        function downloadTexture() {
+            const link = document.createElement('a');
+            link.download = `hair_card_${currentMode}.png`;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+
+        // İlk çizim
+        draw();
+    </script>
+</body>
+
+</html>
